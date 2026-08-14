@@ -1,5 +1,6 @@
 import os
 import time
+import json
 import smtplib
 import requests
 from bs4 import BeautifulSoup
@@ -43,7 +44,7 @@ class JobMatchAnalysis(BaseModel):
     brief_summary: str
 
 # 4. Scraper Fonksiyonları
-def fetch_linkedin_jobs(keyword: str, location: str = "Turkey", limit: int = 5) -> List[JobListing]:
+def fetch_linkedin_jobs(keyword: str, location: str = "Turkey", limit: int = 3) -> List[JobListing]:
     url = f"https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?keywords={keyword}&location={location}&start=0"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -54,6 +55,7 @@ def fetch_linkedin_jobs(keyword: str, location: str = "Turkey", limit: int = 5) 
     try:
         response = requests.get(url, headers=headers, timeout=10)
         if response.status_code != 200:
+            print(f"[-] İlan listesi çekilemedi. Durum kodu: {response.status_code}")
             return []
 
         soup = BeautifulSoup(response.text, "html.parser")
@@ -111,6 +113,16 @@ def evaluate_job_with_gemini(job_title: str, company: str, raw_description: str)
     İlanın aradığı teknik/sosyal gereksinimleri, tecrübe beklentisini ve adayın profilini değerlendirip 0-100 arasında puanla.
     Kurumsal şirket tanıtımlarını yok say.
     
+    MUTLAKA sadece aşağıdaki JSON formatında geçerli bir JSON çıktısı üret:
+    {{
+      "match_score": 80,
+      "suitability_category": "Yüksek Uyum",
+      "extracted_requirements": ["Python", "SQL", "Veri Modelleme"],
+      "matching_points": ["Endüstri mühendisliği altyapısı", "SQL yetkinliği"],
+      "missing_or_risk_points": ["2 yıl deneyim beklentisi"],
+      "brief_summary": "Pozisyon veri analitiği odaklı bir junior/uzman rolüdür."
+    }}
+
     {candidate_profile}
     ---
     Pozisyon: {job_title} | Şirket: {company}
@@ -122,11 +134,17 @@ def evaluate_job_with_gemini(job_title: str, company: str, raw_description: str)
         contents=prompt,
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
-            response_schema=JobMatchAnalysis,
             temperature=0.2,
         ),
     )
-    return JobMatchAnalysis.model_validate_json(response.text)
+    
+    clean_json = response.text.strip()
+    if clean_json.startswith("```json"):
+        clean_json = clean_json.replace("```json", "", 1)
+    if clean_json.endswith("```"):
+        clean_json = clean_json.rstrip("```").strip()
+
+    return JobMatchAnalysis.model_validate_json(clean_json)
 
 # 6. Mail Şablonu ve Gönderim
 def generate_email_html(high_match_jobs: list) -> str:
@@ -135,26 +153,26 @@ def generate_email_html(high_match_jobs: list) -> str:
         job = item["job"]
         a = item["analysis"]
         cards += f"""
-        
-          {job.title} {a.match_score}/100
-          🏢 {job.company} | 📍 {job.location}
-          📝 AI Özeti: {a.brief_summary}
-          ✅ Güçlü Yönler: {", ".join(a.matching_points[:2])}
-          ⚠️ Riskler: {", ".join(a.missing_or_risk_points[:2])}
-          İlanı Aç →
-        
+        <div style="border: 1px solid #e2e8f0; border-radius: 6px; padding: 16px; margin-bottom: 16px; background: #fafafa;">
+          <div style="font-size: 16px; font-weight: bold; color: #1e40af;">{job.title} <span style="background:#10b981; color:white; font-size:12px; padding:2px 8px; border-radius:10px; float:right;">{a.match_score}/100</span></div>
+          <div style="color: #64748b; font-size: 13px; margin: 4px 0 10px 0;">🏢 {job.company} | 📍 {job.location}</div>
+          <div style="font-size: 14px; color: #334155; margin-bottom: 8px;"><strong>📝 AI Özeti:</strong> {a.brief_summary}</div>
+          <div style="font-size: 13px; color: #15803d;"><strong>✅ Güçlü Yönler:</strong> {", ".join(a.matching_points[:2])}</div>
+          <div style="font-size: 13px; color: #b91c1c; margin-top: 4px;"><strong>⚠️ Riskler:</strong> {", ".join(a.missing_or_risk_points[:2])}</div>
+          <a href="{job.job_link}" style="display:inline-block; margin-top:10px; background:#2563eb; color:white; text-decoration:none; padding:6px 12px; border-radius:4px; font-size:12px;" target="_blank">İlanı Aç →</a>
+        </div>
         """
     
     return f"""
-    
-      
-        
-          🎯 Günlük İş İlanı Bülteni
+    <html>
+      <body style="font-family: Arial, sans-serif; background: #f8fafc; padding: 20px;">
+        <div style="max-width: 600px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px;">
+          <h2 style="color: #0f172a; border-bottom: 2px solid #2563eb; padding-bottom: 10px;">🎯 Günlük İş İlanı Bülteni</h2>
           {cards}
-          GitHub Actions Otomasyon Botu Tarafından Gönderildi.
-        
-      
-    
+          <p style="font-size: 11px; color: #94a3b8; text-align: center; margin-top: 20px;">GitHub Actions Otomasyon Botu Tarafından Gönderildi.</p>
+        </div>
+      </body>
+    </html>
     """
 
 def send_email(subject: str, html_body: str):
@@ -171,20 +189,25 @@ def send_email(subject: str, html_body: str):
 
 # 7. Ana Akış
 def main():
-    target_keywords = ["Data Analyst", "Endüstri Mühendisi", "Tedarik Zinciri"]
+    target_keywords = ["Data Analyst", "Endüstri Mühendisi"]
     all_matched = []
 
     for kw in target_keywords:
         print(f"🔍 '{kw}' aranıyor...")
-        jobs = fetch_linkedin_jobs(keyword=kw, location="Istanbul, Turkey", limit=3)
+        jobs = fetch_linkedin_jobs(keyword=kw, location="Istanbul, Turkey", limit=2)
         for job in jobs:
             print(f"🤖 Analiz ediliyor: {job.title} ({job.company})")
-            desc = fetch_job_details(job.job_id)
-            analysis = evaluate_job_with_gemini(job.title, job.company, desc)
+            try:
+                desc = fetch_job_details(job.job_id)
+                analysis = evaluate_job_with_gemini(job.title, job.company, desc)
+                
+                print(f"  📊 Puan: {analysis.match_score}/100")
+                if analysis.match_score >= SCORE_THRESHOLD:
+                    print(f"  ⭐ Eşik Puan Geçildi ({analysis.match_score} >= {SCORE_THRESHOLD})")
+                    all_matched.append({"job": job, "analysis": analysis})
+            except Exception as err:
+                print(f"  [-] Bu ilan analiz edilirken hata oluştu, atlanıyor: {err}")
             
-            if analysis.match_score >= SCORE_THRESHOLD:
-                print(f"  ⭐ Eşik Puan Geçildi: {analysis.match_score}/100")
-                all_matched.append({"job": job, "analysis": analysis})
             time.sleep(1)
 
     if all_matched:
