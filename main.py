@@ -207,25 +207,26 @@ def evaluate_job_with_gemini(job_title: str, company: str, raw_description: str,
 # ==========================================
 # 6. HEDEF KOTALI VE SAYFALAMALI TARAMA
 # ==========================================
-# ==========================================
-# 6. HEDEF KOTALI VE SAYFALAMALI TARAMA
-# ==========================================
+
+# Başlıkta geçerse Gemini'ye HİÇ sormadan anında ele
+INSTANT_DISQUALIFY_KEYWORDS = [
+    "senior", "sr.", "sr ", "lead", "principal", "director", "head of", 
+    "müdür", "yönetici", "takım lideri", "chief"
+]
+
 def fetch_and_evaluate_target_jobs(keyword: str, target_new_count: int, cv_text: str):
     processed_ids = load_processed_job_ids()
     high_match_jobs = []
     analyzed_new_count = 0
-    
     start_offset = 0
-    max_pages = 4  # En fazla 4 sayfa x 25 = 100 ilan tara
+    max_pages = 4
 
     print(f"\n🔍 '{keyword}' için {target_new_count} adet YENİ ilan aranıyor...")
 
     while analyzed_new_count < target_new_count and max_pages > 0:
         url = f"https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?keywords={keyword}&location=Turkey&start={start_offset}"
         jobs_on_page = fetch_linkedin_jobs_by_url(url)
-        
         if not jobs_on_page:
-            print("  [-] Bu sayfada başka ilan kalmadı.")
             break
 
         for job in jobs_on_page:
@@ -234,24 +235,29 @@ def fetch_and_evaluate_target_jobs(keyword: str, target_new_count: int, cv_text:
 
             # 1. Kontrol: Daha önce bakıldı mı?
             if job.job_id in processed_ids:
-                print(f"  ⏭️ [Atlandı] Daha önce incelenmişti: {job.title} ({job.company})")
                 continue
 
-            # 2. Yeni İlan: Puanlama yap ve sayacı artır
+            # 2. Kontrol: BAŞLIKTA SENIOR / LEAD / MÜDÜR VAR MI? (Gemini'ye gitmeden atla)
+            title_lower = job.title.lower()
+            if any(bad_kw in title_lower for bad_kw in INSTANT_DISQUALIFY_KEYWORDS):
+                print(f"  🚫 [Hızlı Elendi - Kıdem/Kapsam]: {job.title} ({job.company})")
+                processed_ids.add(job.job_id)  # Tekrar bakmamak için hafızaya kaydet
+                continue
+
+            # 3. Şartları sağlayan ilan için Gemini analizi
             analyzed_new_count += 1
             print(f"  🤖 [{analyzed_new_count}/{target_new_count}] Analiz ediliyor: {job.title} - {job.company}")
             
             try:
                 desc = fetch_job_details(job.job_id)
                 analysis = evaluate_job_with_gemini(job.title, job.company, desc, cv_text)
-                
-                # Hafızaya ekle (tekrar taranmasın)
                 processed_ids.add(job.job_id)
 
-                print(f"    📊 Uyum Puanı: {analysis.match_score}/100")
                 if analysis.match_score >= SCORE_THRESHOLD:
-                    print(f"    ⭐ Eşik Geçildi!")
+                    print(f"    ⭐ Eşik Geçildi: {analysis.match_score}/100")
                     high_match_jobs.append({"job": job, "analysis": analysis})
+                else:
+                    print(f"    📊 Uyum Puanı: {analysis.match_score}/100")
             except Exception as e:
                 print(f"    [-] Analiz hatası: {e}")
 
