@@ -2,11 +2,12 @@ name: Daily Job Tracker Automation
 
 on:
   schedule:
-    # Her sabah Türkiye saatiyle tam 04:00'te çalışır (UTC 01:00)
-   #   - cron: '0 1 * * *'
-     - cron: '7 12 * * *'
-  # GitHub arayüzünden manuel çalıştırma imkanı
+    # Her sabah Türkiye saatiyle 05:00'te çalışır (UTC 02:00)
+    - cron: '0 2 * * *'
   workflow_dispatch:
+
+permissions:
+  contents: write  # processed_jobs.json dosyasını repoya yazabilmesi için gerekli izin
 
 jobs:
   run-automation:
@@ -34,3 +35,11 @@ jobs:
           RECEIVER_EMAIL: ${{ secrets.SENDER_EMAIL }}
           SCORE_THRESHOLD: 65
         run: python main.py
+
+      - name: Hafızayı (processed_jobs.json) Repoya Kaydet
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add processed_jobs.json
+          git commit -m "chore: incelenen ilanlar hafizaya eklendi [skip ci]" || echo "Yeni dosya değişikliği yok"
+          git push
