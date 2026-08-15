@@ -100,7 +100,7 @@ def fetch_job_details(job_id: str) -> str:
         return f"Hata: {e}"
 
 # 5. Gemini Puanlama
-def evaluate_job_with_gemini(job_title: str, company: str, raw_description: str) -> JobMatchAnalysis:
+def evaluate_job_with_gemini(job_title: str, company: str, raw_description: str, max_retries: int = 3) -> JobMatchAnalysis:
     candidate_profile = """
     ADAY PROFİLİ:
     - Eğitim: Endüstri Mühendisliği Lisans Mezunu.
@@ -129,22 +129,33 @@ def evaluate_job_with_gemini(job_title: str, company: str, raw_description: str)
     İlan Metni: {raw_description}
     """
 
-    response = client.models.generate_content(
-        model='gemini-flash-latest',
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            response_mime_type="application/json",
-            temperature=0.2,
-        ),
-    )
-    
-    clean_json = response.text.strip()
-    if clean_json.startswith("```json"):
-        clean_json = clean_json.replace("```json", "", 1)
-    if clean_json.endswith("```"):
-        clean_json = clean_json.rstrip("```").strip()
+    # 503 veya anlık sunucu hatalarına karşı 3 kez deneme mekanizması
+    for attempt in range(1, max_retries + 1):
+        try:
+            response = client.models.generate_content(
+                model='gemini-flash-latest',
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    temperature=0.2,
+                ),
+            )
+            
+            clean_json = response.text.strip()
+            if clean_json.startswith("```json"):
+                clean_json = clean_json.replace("```json", "", 1)
+            if clean_json.endswith("```"):
+                clean_json = clean_json.rstrip("```").strip()
 
-    return JobMatchAnalysis.model_validate_json(clean_json)
+            return JobMatchAnalysis.model_validate_json(clean_json)
+
+        except Exception as e:
+            if attempt < max_retries:
+                wait_time = attempt * 3  # 3sn, 6sn bekleyerek tekrar dener
+                print(f"  [!] API geçici yanıt veremedi ({e}). {wait_time} saniye sonra tekrar deneniyor ({attempt}/{max_retries})...")
+                time.sleep(wait_time)
+            else:
+                raise e
 
 # 6. Mail Şablonu ve Gönderim
 def generate_email_html(high_match_jobs: list) -> str:
