@@ -6,13 +6,14 @@ import requests
 from bs4 import BeautifulSoup
 from typing import List
 from pydantic import BaseModel, Field
+from pypdf import PdfReader
 from google import genai
 from google.genai import types
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from dotenv import load_dotenv
 
-# 1. Çevre Değişkenlerini Yükle (.env veya GitHub Secrets)
+# 1. Çevre Değişkenlerini Yükle
 load_dotenv()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
@@ -24,8 +25,19 @@ SCORE_THRESHOLD = int(os.getenv("SCORE_THRESHOLD", "65"))
 if not GEMINI_API_KEY or not SENDER_EMAIL or not EMAIL_PASSWORD:
     raise ValueError("Gerekli çevre değişkenleri (GEMINI_API_KEY, SENDER_EMAIL, EMAIL_PASSWORD) eksik!")
 
-# 2. Gemini İstemcisi
 client = genai.Client(api_key=GEMINI_API_KEY)
+
+# 2. PDF'ten CV Metnini Otomatik Okuma
+def extract_text_from_pdf(pdf_path: str = "cv.pdf") -> str:
+    """Repo içerisindeki cv.pdf dosyasını otomatik okur."""
+    if not os.path.exists(pdf_path):
+        raise FileNotFoundError(f"'{pdf_path}' dosyası bulunamadı! Lütfen GitHub reposuna 'cv.pdf' dosyasını yükleyin.")
+    
+    reader = PdfReader(pdf_path)
+    text = ""
+    for page in reader.pages:
+        text += page.extract_text() or ""
+    return text.strip()
 
 # 3. Veri Modelleri
 class JobListing(BaseModel):
@@ -55,7 +67,6 @@ def fetch_linkedin_jobs(keyword: str, location: str = "Turkey", limit: int = 3) 
     try:
         response = requests.get(url, headers=headers, timeout=10)
         if response.status_code != 200:
-            print(f"[-] İlan listesi çekilemedi. Durum kodu: {response.status_code}")
             return []
 
         soup = BeautifulSoup(response.text, "html.parser")
@@ -99,65 +110,65 @@ def fetch_job_details(job_id: str) -> str:
     except Exception as e:
         return f"Hata: {e}"
 
-# 5. Gemini Puanlama
-def evaluate_job_with_gemini(job_title: str, company: str, raw_description: str, max_retries: int = 3) -> JobMatchAnalysis:
-    candidate_profile = """
-    ADAY PROFİLİ:
-    - Eğitim: Endüstri Mühendisliği Lisans Mezunu.
-    - Seviye: Junior / Uzman Yardımcısı / Giriş Seviyesi.
-    - Yetkinlik Alanları: Veri Analitiği (Python, SQL, BI), Tedarik Zinciri, Üretim Planlama & Süreç Optimizasyonu.
-    - Hedef: Veri odaklı karar destek veya mühendislik/süreç/tedarik zinciri analitiği rolleri.
-    """
+# 5. Gemini Puanlama (Dinamik CV ile)
+def evaluate_job_with_gemini(job_title: str, company: str, raw_description: str, cv_text: str) -> JobMatchAnalysis:
     prompt = f"""
-    Sen uzman bir İK ve Teknik Kariyer Danışmanısın.
-    İlanın aradığı teknik/sosyal gereksinimleri, tecrübe beklentisini ve adayın profilini değerlendirip 0-100 arasında puanla.
-    Kurumsal şirket tanıtımlarını yok say.
+    Sen uzman bir İnsan Kaynakları ve Teknik Kariyer Danışmanısın.
+    
+    Aşağıda adayın gerçek özgeçmiş (CV) metni ve bir iş ilanının detayları yer almaktadır.
+    
+    GÖREVİN:
+    1. İlan metnindeki kurumsal dolgu tanıtımları tamamen ele.
+    2. İlanın aradığı yetkinlikler (teknik araçlar, sorumluluklar, tecrübe beklentisi) ile adayın CV'sindeki eğitim, projeler, teknik beceriler ve staj/iş deneyimlerini doğrudan kıyasla.
+    3. CV ile ilan arasındaki uyumu 0-100 arasında objektif olarak puanla.
     
     MUTLAKA sadece aşağıdaki JSON formatında geçerli bir JSON çıktısı üret:
     {{
       "match_score": 80,
       "suitability_category": "Yüksek Uyum",
       "extracted_requirements": ["Python", "SQL", "Veri Modelleme"],
-      "matching_points": ["Endüstri mühendisliği altyapısı", "SQL yetkinliği"],
+      "matching_points": ["CV'deki SQL deneyimi", "Endüstri Mühendisliği eğitimi"],
       "missing_or_risk_points": ["2 yıl deneyim beklentisi"],
-      "brief_summary": "Pozisyon veri analitiği odaklı bir junior/uzman rolüdür."
+      "brief_summary": "Pozisyon veri analitiği odaklı olup CV ile güçlü bir uyum göstermektedir."
     }}
 
-    {candidate_profile}
+    ADAYIN CV METNİ:
+    {cv_text}
     ---
     Pozisyon: {job_title} | Şirket: {company}
     İlan Metni: {raw_description}
     """
 
-    # 503 veya anlık sunucu hatalarına karşı 3 kez deneme mekanizması
-    for attempt in range(1, max_retries + 1):
-        try:
-            response = client.models.generate_content(
-                model='gemini-flash-latest',
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    temperature=0.2,
-                ),
-            )
-            
-            clean_json = response.text.strip()
-            if clean_json.startswith("```json"):
-                clean_json = clean_json.replace("```json", "", 1)
-            if clean_json.endswith("```"):
-                clean_json = clean_json.rstrip("```").strip()
+    fallback_models = ['gemini-flash-latest', 'gemini-3.7-flash', 'gemini-3.1-flash-lite']
+    last_exception = None
 
-            return JobMatchAnalysis.model_validate_json(clean_json)
+    for model_name in fallback_models:
+        for attempt in range(1, 3):
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        temperature=0.2,
+                    ),
+                )
+                clean_json = response.text.strip()
+                if clean_json.startswith("```json"):
+                    clean_json = clean_json.replace("```json", "", 1)
+                if clean_json.endswith("```"):
+                    clean_json = clean_json.rstrip("```").strip()
 
-        except Exception as e:
-            if attempt < max_retries:
-                wait_time = attempt * 3  # 3sn, 6sn bekleyerek tekrar dener
-                print(f"  [!] API geçici yanıt veremedi ({e}). {wait_time} saniye sonra tekrar deneniyor ({attempt}/{max_retries})...")
-                time.sleep(wait_time)
-            else:
-                raise e
+                return JobMatchAnalysis.model_validate_json(clean_json)
+            except Exception as e:
+                last_exception = e
+                print(f"  [!] {model_name} modeli geçici hata verdi ({attempt}/2): {e}")
+                time.sleep(2 * attempt)
+        print(f"  ↪️ {model_name} meşgul, yedek modele geçiliyor...")
 
-# 6. Mail Şablonu ve Gönderim
+    raise last_exception
+
+# 6. Mail Gönderimi
 def generate_email_html(high_match_jobs: list) -> str:
     cards = ""
     for item in high_match_jobs:
@@ -173,14 +184,13 @@ def generate_email_html(high_match_jobs: list) -> str:
           <a href="{job.job_link}" style="display:inline-block; margin-top:10px; background:#2563eb; color:white; text-decoration:none; padding:6px 12px; border-radius:4px; font-size:12px;" target="_blank">İlanı Aç →</a>
         </div>
         """
-    
     return f"""
     <html>
       <body style="font-family: Arial, sans-serif; background: #f8fafc; padding: 20px;">
         <div style="max-width: 600px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px;">
           <h2 style="color: #0f172a; border-bottom: 2px solid #2563eb; padding-bottom: 10px;">🎯 Günlük İş İlanı Bülteni</h2>
           {cards}
-          <p style="font-size: 11px; color: #94a3b8; text-align: center; margin-top: 20px;">GitHub Actions Otomasyon Botu Tarafından Gönderildi.</p>
+          <p style="font-size: 11px; color: #94a3b8; text-align: center; margin-top: 20px;">CV Tabanlı Otomasyon Botu Tarafından Gönderildi.</p>
         </div>
       </body>
     </html>
@@ -200,25 +210,28 @@ def send_email(subject: str, html_body: str):
 
 # 7. Ana Akış
 def main():
+    print("📄 CV okunuyor...")
+    cv_text = extract_text_from_pdf("cv.pdf")
+    print(f"✅ CV başarıyla okundu ({len(cv_text)} karakter).")
+
     target_keywords = ["Data Analyst", "Endüstri Mühendisi"]
     all_matched = []
 
     for kw in target_keywords:
-        print(f"🔍 '{kw}' aranıyor...")
-        jobs = fetch_linkedin_jobs(keyword=kw, location="Istanbul, Turkey", limit=2)
+        print(f"\n🔍 '{kw}' aranıyor...")
+        jobs = fetch_linkedin_jobs(keyword=kw, location="Istanbul, Turkey", limit=3)
         for job in jobs:
             print(f"🤖 Analiz ediliyor: {job.title} ({job.company})")
             try:
                 desc = fetch_job_details(job.job_id)
-                analysis = evaluate_job_with_gemini(job.title, job.company, desc)
+                analysis = evaluate_job_with_gemini(job.title, job.company, desc, cv_text)
                 
-                print(f"  📊 Puan: {analysis.match_score}/100")
+                print(f"  📊 Uyum Puanı: {analysis.match_score}/100")
                 if analysis.match_score >= SCORE_THRESHOLD:
-                    print(f"  ⭐ Eşik Puan Geçildi ({analysis.match_score} >= {SCORE_THRESHOLD})")
+                    print(f"  ⭐ Eşik Geçildi ({analysis.match_score} >= {SCORE_THRESHOLD})")
                     all_matched.append({"job": job, "analysis": analysis})
             except Exception as err:
-                print(f"  [-] Bu ilan analiz edilirken hata oluştu, atlanıyor: {err}")
-            
+                print(f"  [-] Analiz hatası: {err}")
             time.sleep(1)
 
     if all_matched:
@@ -226,7 +239,7 @@ def main():
         html = generate_email_html(all_matched)
         send_email(f"🚀 Günün Eşleşen İlanları ({len(all_matched)} Fırsat)", html)
     else:
-        print("[-] Eşik puanı geçen yeni ilan bulunamadı.")
+        print("\n[-] Eşik puanı geçen yeni ilan bulunamadı.")
 
 if __name__ == "__main__":
     main()
