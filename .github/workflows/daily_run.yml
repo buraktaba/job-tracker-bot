@@ -2,9 +2,9 @@ name: Daily Job Tracker Automation
 
 on:
   schedule:
-    # Her sabah Türkiye saatiyle 08:30'da çalışır (UTC 05:30)
-    - cron: '30 5 * * *'
-  # GitHub arayüzünden istediğin an manuel tetiklemek için:
+    # Her sabah Türkiye saatiyle tam 04:00'te çalışır (UTC 01:00)
+    - cron: '0 1 * * *'
+  # GitHub arayüzünden manuel çalıştırma imkanı
   workflow_dispatch:
 
 jobs:
