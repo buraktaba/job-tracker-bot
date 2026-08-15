@@ -5,41 +5,30 @@ import smtplib
 import requests
 from bs4 import BeautifulSoup
 from typing import List
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from pypdf import PdfReader
 from google import genai
 from google.genai import types
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from dotenv import load_dotenv
+from google.colab import userdata
 
-# 1. Çevre Değişkenlerini Yükle
-load_dotenv()
-
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-SENDER_EMAIL = os.getenv("SENDER_EMAIL")
-EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
-RECEIVER_EMAIL = os.getenv("RECEIVER_EMAIL", SENDER_EMAIL)
-SCORE_THRESHOLD = int(os.getenv("SCORE_THRESHOLD", "65"))
-
-if not GEMINI_API_KEY or not SENDER_EMAIL or not EMAIL_PASSWORD:
-    raise ValueError("Gerekli çevre değişkenleri (GEMINI_API_KEY, SENDER_EMAIL, EMAIL_PASSWORD) eksik!")
+# ==========================================
+# 1. AYARLAR VE BAĞLANTILAR
+# ==========================================
+# Colab Secrets (Sol menüdeki Anahtar 🔑 simgesi) üzerinden API Key ve Mail bilgilerini alır
+GEMINI_API_KEY = userdata.get('GEMINI_API_KEY')
+SENDER_EMAIL = userdata.get('SENDER_EMAIL')
+EMAIL_PASSWORD = userdata.get('EMAIL_PASSWORD')
+RECEIVER_EMAIL = userdata.get('RECEIVER_EMAIL', SENDER_EMAIL)
+SCORE_THRESHOLD = 65
+DB_FILE = "processed_jobs.json"
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 
-# 2. PDF'ten CV Metnini Otomatik Okuma
-def extract_text_from_pdf(pdf_path: str = "cv.pdf") -> str:
-    """Repo içerisindeki cv.pdf dosyasını otomatik okur."""
-    if not os.path.exists(pdf_path):
-        raise FileNotFoundError(f"'{pdf_path}' dosyası bulunamadı! Lütfen GitHub reposuna 'cv.pdf' dosyasını yükleyin.")
-    
-    reader = PdfReader(pdf_path)
-    text = ""
-    for page in reader.pages:
-        text += page.extract_text() or ""
-    return text.strip()
-
-# 3. Veri Modelleri
+# ==========================================
+# 2. VERİ MODELLERİ
+# ==========================================
 class JobListing(BaseModel):
     title: str
     company: str
@@ -55,26 +44,54 @@ class JobMatchAnalysis(BaseModel):
     missing_or_risk_points: List[str]
     brief_summary: str
 
-# 4. Scraper Fonksiyonları
-def fetch_linkedin_jobs(keyword: str, location: str = "Turkey", limit: int = 3) -> List[JobListing]:
-    url = f"https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?keywords={keyword}&location={location}&start=0"
+# ==========================================
+# 3. HAFIZA (DEDUPLICATION) YÖNETİMİ
+# ==========================================
+def load_processed_job_ids() -> set:
+    """Daha önce incelenmiş ilan ID'lerini dosyadan okur."""
+    if os.path.exists(DB_FILE):
+        try:
+            with open(DB_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return set(data.get("processed_ids", []))
+        except Exception:
+            return set()
+    return set()
+
+def save_processed_job_ids(processed_ids: set):
+    """Güncel incelenmiş ilan ID listesini JSON olarak kaydeder."""
+    with open(DB_FILE, "w", encoding="utf-8") as f:
+        json.dump({"processed_ids": list(processed_ids)}, f, indent=2)
+
+# ==========================================
+# 4. CV OKUMA VE SCRAPER FONKSİYONLARI
+# ==========================================
+def extract_text_from_pdf(pdf_path: str = "cv.pdf") -> str:
+    """PDF formatındaki CV'den metin ayıklar."""
+    if not os.path.exists(pdf_path):
+        raise FileNotFoundError(f"'{pdf_path}' bulunamadı! Lütfen Colab sol paneline CV dosyanızı yükleyin.")
+    reader = PdfReader(pdf_path)
+    text = ""
+    for page in reader.pages:
+        text += page.extract_text() or ""
+    return text.strip()
+
+def fetch_linkedin_jobs_by_url(url: str) -> List[JobListing]:
+    """Belirtilen LinkedIn arama URL'sindeki ilan kartlarını çeker."""
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7"
     }
-
     job_list = []
     try:
         response = requests.get(url, headers=headers, timeout=10)
         if response.status_code != 200:
             return []
-
+        
         soup = BeautifulSoup(response.text, "html.parser")
         job_cards = soup.find_all("li")
 
         for card in job_cards:
-            if len(job_list) >= limit:
-                break
             title_tag = card.find("h3", class_="base-search-card__title")
             company_tag = card.find("h4", class_="base-search-card__subtitle")
             location_tag = card.find("span", class_="job-search-card__location")
@@ -91,14 +108,14 @@ def fetch_linkedin_jobs(keyword: str, location: str = "Turkey", limit: int = 3) 
                 ))
         return job_list
     except Exception as e:
-        print(f"[-] Scrape hatası: {e}")
+        print(f"  [-] Scrape hatası: {e}")
         return []
 
 def fetch_job_details(job_id: str) -> str:
+    """İlanın detay açıklamasını çeker."""
     detail_url = f"https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/{job_id}"
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
     try:
         response = requests.get(detail_url, headers=headers, timeout=10)
@@ -110,7 +127,9 @@ def fetch_job_details(job_id: str) -> str:
     except Exception as e:
         return f"Hata: {e}"
 
-# 5. Gemini Puanlama (Dinamik CV ile)
+# ==========================================
+# 5. GEMINI PUANLAMA (YEDEKLİ MODEL YAPISI)
+# ==========================================
 def evaluate_job_with_gemini(job_title: str, company: str, raw_description: str, cv_text: str) -> JobMatchAnalysis:
     prompt = f"""
     Sen uzman bir İnsan Kaynakları ve Teknik Kariyer Danışmanısın.
@@ -118,18 +137,18 @@ def evaluate_job_with_gemini(job_title: str, company: str, raw_description: str,
     Aşağıda adayın gerçek özgeçmiş (CV) metni ve bir iş ilanının detayları yer almaktadır.
     
     GÖREVİN:
-    1. İlan metnindeki kurumsal dolgu tanıtımları tamamen ele.
-    2. İlanın aradığı yetkinlikler (teknik araçlar, sorumluluklar, tecrübe beklentisi) ile adayın CV'sindeki eğitim, projeler, teknik beceriler ve staj/iş deneyimlerini doğrudan kıyasla.
-    3. CV ile ilan arasındaki uyumu 0-100 arasında objektif olarak puanla.
+    1. İlan metnindeki kurumsal dolgu tanıtımları ele.
+    2. İlanın aradığı teknik/sosyal yetkinlikler ile adayın CV'sindeki eğitim, projeler ve tecrübeleri doğrudan kıyasla.
+    3. CV ile ilan arasındaki uyumu 0-100 arasında puanla.
     
     MUTLAKA sadece aşağıdaki JSON formatında geçerli bir JSON çıktısı üret:
     {{
       "match_score": 80,
       "suitability_category": "Yüksek Uyum",
       "extracted_requirements": ["Python", "SQL", "Veri Modelleme"],
-      "matching_points": ["CV'deki SQL deneyimi", "Endüstri Mühendisliği eğitimi"],
+      "matching_points": ["CV'deki analitik yetkinlikler", "Mühendislik eğitimi"],
       "missing_or_risk_points": ["2 yıl deneyim beklentisi"],
-      "brief_summary": "Pozisyon veri analitiği odaklı olup CV ile güçlü bir uyum göstermektedir."
+      "brief_summary": "Pozisyon veri analitiği odaklı olup adayın profiliyle güçlü uyum sergilemektedir."
     }}
 
     ADAYIN CV METNİ:
@@ -162,16 +181,74 @@ def evaluate_job_with_gemini(job_title: str, company: str, raw_description: str,
                 return JobMatchAnalysis.model_validate_json(clean_json)
             except Exception as e:
                 last_exception = e
-                print(f"  [!] {model_name} modeli geçici hata verdi ({attempt}/2): {e}")
+                print(f"    [!] {model_name} geçici hata verdi ({attempt}/2): {e}")
                 time.sleep(2 * attempt)
-        print(f"  ↪️ {model_name} meşgul, yedek modele geçiliyor...")
+        print(f"    ↪️ {model_name} meşgul, yedek modele geçiliyor...")
 
     raise last_exception
 
-# 6. Mail Gönderimi
-def generate_email_html(high_match_jobs: list) -> str:
+# ==========================================
+# 6. HEDEF KOTALI VE SAYFALAMALI TARAMA
+# ==========================================
+def fetch_and_evaluate_target_jobs(keyword: str, target_new_count: int, cv_text: str):
+    processed_ids = load_processed_job_ids()
+    high_match_jobs = []
+    analyzed_new_count = 0
+    
+    start_offset = 0
+    max_pages = 4  # Güvenlik sınırı: en fazla 4 sayfa x 25 = 100 ilan tara
+
+    print(f"\n🔍 '{keyword}' için {target_new_count} adet YENİ ilan aranıyor...")
+
+    while analyzed_new_count < target_new_count and max_pages > 0:
+        url = f"https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?keywords={keyword}&location=Turkey&start={start_offset}"
+        jobs_on_page = fetch_linkedin_jobs_by_url(url)
+        
+        if not jobs_on_page:
+            print("  [-] Bu sayfada başka ilan kalmadı.")
+            break
+
+        for job in jobs_on_page:
+            if analyzed_new_count >= target_new_count:
+                break
+
+            # 1. Kontrol: Daha önce bakıldı mı?
+            if job.job_id in processed_ids:
+                print(f"  ⏭️ [Atlandı] Daha önce incelenmişti: {job.title} ({job.company})")
+                continue
+
+            # 2. Yeni İlan: Puanlama yap ve sayacı artır
+            analyzed_new_count += 1
+            print(f"  🤖 [{analyzed_new_count}/{target_new_count}] Analiz ediliyor: {job.title} - {job.company}")
+            
+            try:
+                desc = fetch_job_details(job.job_id)
+                analysis = evaluate_job_with_gemini(job.title, job.company, desc, cv_text)
+                
+                # Hafızaya ekle (tekrar taranmasın)
+                processed_ids.add(job.job_id)
+
+                print(f"    📊 Uyum Puanı: {analysis.match_score}/100")
+                if analysis.match_score >= SCORE_THRESHOLD:
+                    print(f"    ⭐ Eşik Geçildi!")
+                    high_match_jobs.append({"job": job, "analysis": analysis})
+            except Exception as e:
+                print(f"    [-] Analiz hatası: {e}")
+
+            time.sleep(1)
+
+        start_offset += 25
+        max_pages -= 1
+
+    save_processed_job_ids(processed_ids)
+    return high_match_jobs
+
+# ==========================================
+# 7. RAPORLAMA VE MAİL GÖNDERİMİ
+# ==========================================
+def generate_email_html(matched_jobs: list) -> str:
     cards = ""
-    for item in high_match_jobs:
+    for item in matched_jobs:
         job = item["job"]
         a = item["analysis"]
         cards += f"""
@@ -190,7 +267,7 @@ def generate_email_html(high_match_jobs: list) -> str:
         <div style="max-width: 600px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px;">
           <h2 style="color: #0f172a; border-bottom: 2px solid #2563eb; padding-bottom: 10px;">🎯 Günlük İş İlanı Bülteni</h2>
           {cards}
-          <p style="font-size: 11px; color: #94a3b8; text-align: center; margin-top: 20px;">CV Tabanlı Otomasyon Botu Tarafından Gönderildi.</p>
+          <p style="font-size: 11px; color: #94a3b8; text-align: center; margin-top: 20px;">CV Tabanlı Otomasyon Botu</p>
         </div>
       </body>
     </html>
@@ -208,7 +285,9 @@ def send_email(subject: str, html_body: str):
         server.sendmail(SENDER_EMAIL, RECEIVER_EMAIL, msg.as_string())
     print("📧 E-posta başarıyla gönderildi!")
 
-# 7. Ana Akış
+# ==========================================
+# 8. ANA ÇALIŞTIRMA FONKSİYONU
+# ==========================================
 def main():
     print("📄 CV okunuyor...")
     cv_text = extract_text_from_pdf("cv.pdf")
@@ -218,28 +297,16 @@ def main():
     all_matched = []
 
     for kw in target_keywords:
-        print(f"\n🔍 '{kw}' aranıyor...")
-        jobs = fetch_linkedin_jobs(keyword=kw, location="Istanbul, Turkey", limit=3)
-        for job in jobs:
-            print(f"🤖 Analiz ediliyor: {job.title} ({job.company})")
-            try:
-                desc = fetch_job_details(job.job_id)
-                analysis = evaluate_job_with_gemini(job.title, job.company, desc, cv_text)
-                
-                print(f"  📊 Uyum Puanı: {analysis.match_score}/100")
-                if analysis.match_score >= SCORE_THRESHOLD:
-                    print(f"  ⭐ Eşik Geçildi ({analysis.match_score} >= {SCORE_THRESHOLD})")
-                    all_matched.append({"job": job, "analysis": analysis})
-            except Exception as err:
-                print(f"  [-] Analiz hatası: {err}")
-            time.sleep(1)
+        # Her kelime için tam 3 adet DAHA ÖNCE İNCELENMEMİŞ yeni ilan bulup değerlendir
+        matched = fetch_and_evaluate_target_jobs(keyword=kw, target_new_count=3, cv_text=cv_text)
+        all_matched.extend(matched)
 
     if all_matched:
         all_matched.sort(key=lambda x: x["analysis"].match_score, reverse=True)
         html = generate_email_html(all_matched)
         send_email(f"🚀 Günün Eşleşen İlanları ({len(all_matched)} Fırsat)", html)
     else:
-        print("\n[-] Eşik puanı geçen yeni ilan bulunamadı.")
+        print("\n[-] Eşik puanı geçen yeni ilan bulunamadı veya hedeflenen yeni ilan kotası doldu.")
 
 if __name__ == "__main__":
     main()
