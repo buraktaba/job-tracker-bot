@@ -297,7 +297,16 @@ def main():
     cv_text = extract_text_from_pdf("cv.pdf")
     print(f"✅ CV başarıyla okundu ({len(cv_text)} karakter).")
 
-    target_keywords = ["Data Analyst", "Endüstri Mühendisi"]
+#    target_keywords = ["Data Analyst", "Endüstri Mühendisi"]
+    target_keywords = [
+    "Data Analyst", "Veri Analisti", "Business Intelligence Analyst", "BI Developer", "İş Zekası Uzmanı", "Reporting Specialist", "Raporlama Uzmanı", "Business Analyst", "İş Analisti",
+    "Process Analyst", "Süreç Analisti", "Process Development Specialist", "Süreç Geliştirme Uzmanı", "Operations Analyst", "Operasyon Analisti", "Decision Support Specialist", "Karar Destek Uzmanı",
+    "ERP Consultant", "ERP Danışmanı", "SAP Consultant", "SAP Danışmanı", "Continuous Improvement Specialist", "Sürekli İyileştirme Uzmanı", "Supply Chain Analyst", "Tedarik Zinciri Analisti",
+    "Junior Data Analyst", "Genç Veri Analisti", "Associate Analyst", "Yeni Mezun", "Graduate", "Management Trainee", "Yönetici Adayı",
+    "SQL", "Tableau", "Qlik Sense", "Power BI", "Python", "Advanced Excel", "İleri Excel", "ETL", "Data Modeling", "Veri Modelleme", "Data Visualization", "Veri Görselleştirme",
+    "Process Automation", "Süreç Otomasyonu", "SAP", "ABAP", "OData", "REST API", "Postman", "Jira", "Agile", "Scrum", "Lean", "Yalın Üretim", "Six Sigma", "Altı Sigma",
+    "Simulation", "Simülasyon", "Kanban", "Statistical Process Control", "İstatistiksel Süreç Kontrolü", "Root Cause Analysis", "Kök Neden Analizi"
+]
     all_matched = []
 
     for kw in target_keywords:
