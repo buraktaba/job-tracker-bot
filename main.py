@@ -11,18 +11,22 @@ from google import genai
 from google.genai import types
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from google.colab import userdata
+from dotenv import load_dotenv
 
 # ==========================================
 # 1. AYARLAR VE BAĞLANTILAR
 # ==========================================
-# Colab Secrets (Sol menüdeki Anahtar 🔑 simgesi) üzerinden API Key ve Mail bilgilerini alır
-GEMINI_API_KEY = userdata.get('GEMINI_API_KEY')
-SENDER_EMAIL = userdata.get('SENDER_EMAIL')
-EMAIL_PASSWORD = userdata.get('EMAIL_PASSWORD')
-RECEIVER_EMAIL = userdata.get('RECEIVER_EMAIL', SENDER_EMAIL)
-SCORE_THRESHOLD = 65
+load_dotenv()
+
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+SENDER_EMAIL = os.getenv("SENDER_EMAIL")
+EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
+RECEIVER_EMAIL = os.getenv("RECEIVER_EMAIL", SENDER_EMAIL)
+SCORE_THRESHOLD = int(os.getenv("SCORE_THRESHOLD", "65"))
 DB_FILE = "processed_jobs.json"
+
+if not GEMINI_API_KEY or not SENDER_EMAIL or not EMAIL_PASSWORD:
+    raise ValueError("Gerekli çevre değişkenleri (GEMINI_API_KEY, SENDER_EMAIL, EMAIL_PASSWORD) eksik!")
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 
@@ -69,7 +73,7 @@ def save_processed_job_ids(processed_ids: set):
 def extract_text_from_pdf(pdf_path: str = "cv.pdf") -> str:
     """PDF formatındaki CV'den metin ayıklar."""
     if not os.path.exists(pdf_path):
-        raise FileNotFoundError(f"'{pdf_path}' bulunamadı! Lütfen Colab sol paneline CV dosyanızı yükleyin.")
+        raise FileNotFoundError(f"'{pdf_path}' bulunamadı! Lütfen GitHub reposuna 'cv.pdf' dosyasını yükleyin.")
     reader = PdfReader(pdf_path)
     text = ""
     for page in reader.pages:
@@ -196,7 +200,7 @@ def fetch_and_evaluate_target_jobs(keyword: str, target_new_count: int, cv_text:
     analyzed_new_count = 0
     
     start_offset = 0
-    max_pages = 4  # Güvenlik sınırı: en fazla 4 sayfa x 25 = 100 ilan tara
+    max_pages = 4  # En fazla 4 sayfa x 25 = 100 ilan tara
 
     print(f"\n🔍 '{keyword}' için {target_new_count} adet YENİ ilan aranıyor...")
 
@@ -297,7 +301,6 @@ def main():
     all_matched = []
 
     for kw in target_keywords:
-        # Her kelime için tam 3 adet DAHA ÖNCE İNCELENMEMİŞ yeni ilan bulup değerlendir
         matched = fetch_and_evaluate_target_jobs(keyword=kw, target_new_count=3, cv_text=cv_text)
         all_matched.extend(matched)
 
