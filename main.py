@@ -134,25 +134,40 @@ def fetch_job_details(job_id: str) -> str:
 # ==========================================
 # 5. GEMINI PUANLAMA (YEDEKLİ MODEL YAPISI)
 # ==========================================
+class JobMatchAnalysis(BaseModel):
+    match_score: int
+    is_disqualified: bool
+    disqualification_reason: str
+    suitability_category: str
+    extracted_requirements: List[str]
+    matching_points: List[str]
+    missing_or_risk_points: List[str]
+    brief_summary: str
+
 def evaluate_job_with_gemini(job_title: str, company: str, raw_description: str, cv_text: str) -> JobMatchAnalysis:
     prompt = f"""
-    Sen uzman bir İnsan Kaynakları ve Teknik Kariyer Danışmanısın.
+    Sen uzman bir İK ve Teknik Kariyer Danışmanısın.
     
-    Aşağıda adayın gerçek özgeçmiş (CV) metni ve bir iş ilanının detayları yer almaktadır.
+    Aşağıdaki ilanı adayın CV'sine göre incele.
     
-    GÖREVİN:
-    1. İlan metnindeki kurumsal dolgu tanıtımları ele.
-    2. İlanın aradığı teknik/sosyal yetkinlikler ile adayın CV'sindeki eğitim, projeler ve tecrübeleri doğrudan kıyasla.
-    3. CV ile ilan arasındaki uyumu 0-100 arasında puanla.
+    🚨 KESİN ELEME KRİTERLERİ (Disqualification Rules):
+    Aşağıdaki durumlardan BİRİ BİLE varsa, "is_disqualified": true, "match_score": 0 yap ve nedenini "disqualification_reason" alanına yaz:
+    1. İlan 3 yıl veya daha fazla (3+, 4+, 5+ yıl vb.) zorunlu iş tecrübesi istiyorsa.
+    2. Pozisyon Senior, Lead, Principal, Yönetici veya Direktör seviyesindeyse.
+    3. İş tanımı saf yazılım mimarisi (örn. React, iOS, DevOps, Kubernetes) veya analitik olmayan rutin idari/ofis işiyse.
+    
+    Eğer elenme sebebi yoksa adayın yetkinlikleri ile ilanı 0-100 arasında puanla.
     
     MUTLAKA sadece aşağıdaki JSON formatında geçerli bir JSON çıktısı üret:
     {{
-      "match_score": 80,
+      "is_disqualified": false,
+      "disqualification_reason": "Yok veya elenme sebebi",
+      "match_score": 85,
       "suitability_category": "Yüksek Uyum",
-      "extracted_requirements": ["Python", "SQL", "Veri Modelleme"],
-      "matching_points": ["CV'deki analitik yetkinlikler", "Mühendislik eğitimi"],
-      "missing_or_risk_points": ["2 yıl deneyim beklentisi"],
-      "brief_summary": "Pozisyon veri analitiği odaklı olup adayın profiliyle güçlü uyum sergilemektedir."
+      "extracted_requirements": ["SQL", "Power BI", "Süreç Analizi"],
+      "matching_points": ["Endüstri Mühendisliği mezuniyeti", "SQL yetkinliği"],
+      "missing_or_risk_points": ["İlgili sektörde staj tecrübesi tercihi"],
+      "brief_summary": "Junior veri analisti rolü olup adayın profiliyle yüksek uyum göstermektedir."
     }}
 
     ADAYIN CV METNİ:
@@ -173,7 +188,7 @@ def evaluate_job_with_gemini(job_title: str, company: str, raw_description: str,
                     contents=prompt,
                     config=types.GenerateContentConfig(
                         response_mime_type="application/json",
-                        temperature=0.2,
+                        temperature=0.1,
                     ),
                 )
                 clean_json = response.text.strip()
@@ -185,12 +200,13 @@ def evaluate_job_with_gemini(job_title: str, company: str, raw_description: str,
                 return JobMatchAnalysis.model_validate_json(clean_json)
             except Exception as e:
                 last_exception = e
-                print(f"    [!] {model_name} geçici hata verdi ({attempt}/2): {e}")
                 time.sleep(2 * attempt)
-        print(f"    ↪️ {model_name} meşgul, yedek modele geçiliyor...")
 
     raise last_exception
 
+# ==========================================
+# 6. HEDEF KOTALI VE SAYFALAMALI TARAMA
+# ==========================================
 # ==========================================
 # 6. HEDEF KOTALI VE SAYFALAMALI TARAMA
 # ==========================================
@@ -299,12 +315,12 @@ def main():
 
 #    target_keywords = ["Data Analyst", "Endüstri Mühendisi"]
     target_keywords = [
-    "Data Analyst", "Veri Analisti", "Business Intelligence Analyst", "BI Developer", "İş Zekası Uzmanı", "Reporting Specialist", "Raporlama Uzmanı", "Business Analyst", "İş Analisti",
-    "Process Analyst", "Süreç Analisti", "Process Development Specialist", "Süreç Geliştirme Uzmanı", "Operations Analyst", "Operasyon Analisti", "Decision Support Specialist", "Karar Destek Uzmanı",
+    "Data Analyst", "Veri Analisti", "Business Intelligence Analyst", "BI Developer", "İş Zekası", "Reporting Specialist", "Raporlama Uzmanı", "Business Analyst", "İş Analisti",
+    "Process Analyst", "Süreç Analisti", "Process Development Specialist", "Süreç Geliştirme Uzmanı", "Operations Analyst", "Operasyon Analisti", 
     "ERP Consultant", "ERP Danışmanı", "SAP Consultant", "SAP Danışmanı", "Continuous Improvement Specialist", "Sürekli İyileştirme Uzmanı", "Supply Chain Analyst", "Tedarik Zinciri Analisti",
-    "Junior Data Analyst", "Genç Veri Analisti", "Associate Analyst", "Yeni Mezun", "Graduate", "Management Trainee", "Yönetici Adayı",
-    "SQL", "Tableau", "Qlik Sense", "Power BI", "Python", "Advanced Excel", "İleri Excel", "ETL", "Data Modeling", "Veri Modelleme", "Data Visualization", "Veri Görselleştirme",
-    "Process Automation", "Süreç Otomasyonu", "SAP", "ABAP", "OData", "REST API", "Postman", "Jira", "Agile", "Scrum", "Lean", "Yalın Üretim", "Six Sigma", "Altı Sigma",
+    "Junior", "Yeni Mezun", "Graduate", "Management Trainee", "Yönetici Adayı",
+    "SQL", "Tableau", "Qlik Sense", "Power BI", "Python", "Excel", "ETL", "Data Modeling", "Veri Modelleme", "Data Visualization", "Veri Görselleştirme",
+    "Process Automation", "Süreç Otomasyonu", "SAP", "ABAP", "OData", "REST API", "Postman", "Jira", "Agile", "Scrum", "Lean", "Yalın Üretim", "Six Sigma",
     "Simulation", "Simülasyon", "Kanban", "Statistical Process Control", "İstatistiksel Süreç Kontrolü", "Root Cause Analysis", "Kök Neden Analizi"
 ]
     all_matched = []
