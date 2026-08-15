@@ -219,13 +219,14 @@ def fetch_and_evaluate_target_jobs(keyword: str, target_new_count: int, cv_text:
     high_match_jobs = []
     analyzed_new_count = 0
     start_offset = 0
-    max_pages = 4
+    max_pages = 4  # Sayfa başı 25 kart
 
     print(f"\n🔍 '{keyword}' için {target_new_count} adet YENİ ilan aranıyor...")
 
     while analyzed_new_count < target_new_count and max_pages > 0:
         url = f"https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?keywords={keyword}&location=Turkey&start={start_offset}"
         jobs_on_page = fetch_linkedin_jobs_by_url(url)
+        
         if not jobs_on_page:
             break
 
@@ -237,14 +238,14 @@ def fetch_and_evaluate_target_jobs(keyword: str, target_new_count: int, cv_text:
             if job.job_id in processed_ids:
                 continue
 
-            # 2. Kontrol: BAŞLIKTA SENIOR / LEAD / MÜDÜR VAR MI? (Gemini'ye gitmeden atla)
+            # 2. Kontrol: Senior/Müdür ise Gemini'ye gitmeden hemen ele
             title_lower = job.title.lower()
             if any(bad_kw in title_lower for bad_kw in INSTANT_DISQUALIFY_KEYWORDS):
-                print(f"  🚫 [Hızlı Elendi - Kıdem/Kapsam]: {job.title} ({job.company})")
-                processed_ids.add(job.job_id)  # Tekrar bakmamak için hafızaya kaydet
+                print(f"  🚫 [Hızlı Elendi - Kıdem]: {job.title} ({job.company})")
+                processed_ids.add(job.job_id)
                 continue
 
-            # 3. Şartları sağlayan ilan için Gemini analizi
+            # 3. Kontrol: Şartları sağlayan yeni ilan için analiz
             analyzed_new_count += 1
             print(f"  🤖 [{analyzed_new_count}/{target_new_count}] Analiz ediliyor: {job.title} - {job.company}")
             
@@ -257,18 +258,18 @@ def fetch_and_evaluate_target_jobs(keyword: str, target_new_count: int, cv_text:
                     print(f"    ⭐ Eşik Geçildi: {analysis.match_score}/100")
                     high_match_jobs.append({"job": job, "analysis": analysis})
                 else:
-                    print(f"    📊 Uyum Puanı: {analysis.match_score}/100")
+                    print(f"    📊 Puan: {analysis.match_score}/100")
             except Exception as e:
                 print(f"    [-] Analiz hatası: {e}")
 
-            time.sleep(1)
+            # Gemini Free Tier (15 RPM) kota aşımını önlemek için güvenli bekleme
+            time.sleep(2)
 
         start_offset += 25
         max_pages -= 1
 
     save_processed_job_ids(processed_ids)
     return high_match_jobs
-
 # ==========================================
 # 7. RAPORLAMA VE MAİL GÖNDERİMİ
 # ==========================================
@@ -319,28 +320,67 @@ def main():
     cv_text = extract_text_from_pdf("cv.pdf")
     print(f"✅ CV başarıyla okundu ({len(cv_text)} karakter).")
 
-#    target_keywords = ["Data Analyst", "Endüstri Mühendisi"]
-    target_keywords = [
-    "Data Analyst", "Veri Analisti", "Business Intelligence Analyst", "BI Developer", "İş Zekası", "Reporting Specialist", "Raporlama Uzmanı", "Business Analyst", "İş Analisti",
-    "Process Analyst", "Süreç Analisti", "Process Development Specialist", "Süreç Geliştirme Uzmanı", "Operations Analyst", "Operasyon Analisti", 
-    "ERP Consultant", "ERP Danışmanı", "SAP Consultant", "SAP Danışmanı", "Continuous Improvement Specialist", "Sürekli İyileştirme Uzmanı", "Supply Chain Analyst", "Tedarik Zinciri Analisti",
-    "Junior", "Yeni Mezun", "Graduate", "Management Trainee", "Yönetici Adayı",
-    "SQL", "Tableau", "Qlik Sense", "Power BI", "Python", "Excel", "ETL", "Data Modeling", "Veri Modelleme", "Data Visualization", "Veri Görselleştirme",
-    "Process Automation", "Süreç Otomasyonu", "SAP", "ABAP", "OData", "REST API", "Postman", "Jira", "Agile", "Scrum", "Lean", "Yalın Üretim", "Six Sigma",
-    "Simulation", "Simülasyon", "Kanban", "Statistical Process Control", "İstatistiksel Süreç Kontrolü", "Root Cause Analysis", "Kök Neden Analizi"
-]
     all_matched = []
+    total_target = sum(TARGET_KEYWORDS_QUOTA.values())
+    print(f"\n🚀 Toplam {len(TARGET_KEYWORDS_QUOTA)} kategori için {total_target} adet hedef ilan taraması başlatılıyor...\n")
 
-    for kw in target_keywords:
-        matched = fetch_and_evaluate_target_jobs(keyword=kw, target_new_count=3, cv_text=cv_text)
+    # Sözlükteki her kelime ve kendine özel kotası için döngü
+    for keyword, quota in TARGET_KEYWORDS_QUOTA.items():
+        matched = fetch_and_evaluate_target_jobs(
+            keyword=keyword, 
+            target_new_count=quota, 
+            cv_text=cv_text
+        )
         all_matched.extend(matched)
 
     if all_matched:
+        # En yüksek puana göre sırala
         all_matched.sort(key=lambda x: x["analysis"].match_score, reverse=True)
-        html = generate_email_html(all_matched)
-        send_email(f"🚀 Günün Eşleşen İlanları ({len(all_matched)} Fırsat)", html)
+        
+        # Mail kutusunun şişmemesi ve kırpılmaması için en iyi 10-15 ilanı seç
+        top_jobs = all_matched[:15]
+        
+        html = generate_email_html(top_jobs)
+        send_email(f"🚀 Günün Eşleşen En İyi {len(top_jobs)} İlanı", html)
     else:
-        print("\n[-] Eşik puanı geçen yeni ilan bulunamadı veya hedeflenen yeni ilan kotası doldu.")
+        print("\n[-] Eşik puanı geçen yeni ilan bulunamadı.")
 
-if __name__ == "__main__":
-    main()
+# ==========================================
+# 9. İLAN ANAHTAR KELİMELERİ X İLAN SAYISI
+# ==========================================
+
+TARGET_KEYWORDS_QUOTA = {
+    # Veri & İş Zekası / Analitik
+    "Data Analyst": 5,
+    "Veri Analisti": 5,
+    "Business Intelligence": 3,
+    "İş Zekası": 3,
+    "Business Analyst": 5,
+    "İş Analisti": 5,
+    "Junior Data Analyst": 5,
+    "SQL": 5,
+    "Data Modeling": 2,
+    "Veri Modelleme": 2,
+    "Data Warehouse": 2,
+    "Veri Ambarı": 2,
+    "Endüstri Mühendisi": 5,
+    
+    # ERP, SAP & Yazılım
+    "ERP Danışmanı": 3,
+    "SAP Consultant": 3,
+    "ABAP": 5,
+    
+    # Tedarik Zinciri, Üretim & Pazarlama
+    "Supply Chain": 5,
+    "Tedarik Zinciri": 5,
+    "Üretim": 5,
+    "Production": 3,
+    "Marketing": 5,
+    "Pazarlama": 5,
+    
+    # Genç Yetenek & Yönetici Adaylığı
+    "Yeni Mezun": 3,
+    "Graduate": 3,
+    "Management Trainee": 2,
+    "Yönetici Adayı": 2
+}
