@@ -365,9 +365,8 @@ def main():
 
     if all_matched:
         all_matched.sort(key=lambda x: x["analysis"].match_score, reverse=True)
-        top_jobs = all_matched[:15]
-        html = generate_email_html(top_jobs)
-        send_email(f"🚀 Günün Eşleşen En İyi {len(top_jobs)} İlanı", html)
+        html = generate_email_html(all_matched)
+        send_email(f"🚀 Günün Eşleşen En İyi {len(all_matched)} İlanı", html)
     else:
         print("\n[-] Eşik puanı geçen yeni ilan bulunamadı.")
 
