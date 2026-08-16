@@ -31,7 +31,46 @@ if not GEMINI_API_KEY or not SENDER_EMAIL or not EMAIL_PASSWORD:
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 # ==========================================
-# 2. VERİ MODELLERİ
+# 2. HEDEF KELİMELER VE KOTA DAĞILIMI
+# ==========================================
+TARGET_KEYWORDS_QUOTA = {
+    # Veri & İş Zekası / Analitik
+    "Data Analyst": 5,
+    "Veri Analisti": 5,
+    "Business Intelligence": 3,
+    "İş Zekası": 3,
+    "Business Analyst": 5,
+    "İş Analisti": 5,
+    "Junior Data Analyst": 5,
+    "SQL": 5,
+    "Data Modeling": 2,
+    "Veri Modelleme": 2,
+    "Data Warehouse": 2,
+    "Veri Ambarı": 2,
+    "Endüstri Mühendisi": 5,
+    
+    # ERP, SAP & Yazılım
+    "ERP Danışmanı": 3,
+    "SAP Consultant": 3,
+    "ABAP": 5,
+    
+    # Tedarik Zinciri, Üretim & Pazarlama
+    "Supply Chain": 5,
+    "Tedarik Zinciri": 5,
+    "Üretim": 5,
+    "Production": 3,
+    "Marketing": 5,
+    "Pazarlama": 5,
+    
+    # Genç Yetenek & Yönetici Adaylığı
+    "Yeni Mezun": 3,
+    "Graduate": 3,
+    "Management Trainee": 2,
+    "Yönetici Adayı": 2
+}
+
+# ==========================================
+# 3. VERİ MODELLERİ
 # ==========================================
 class JobListing(BaseModel):
     title: str
@@ -42,6 +81,8 @@ class JobListing(BaseModel):
 
 class JobMatchAnalysis(BaseModel):
     match_score: int
+    is_disqualified: bool
+    disqualification_reason: str
     suitability_category: str
     extracted_requirements: List[str]
     matching_points: List[str]
@@ -49,7 +90,7 @@ class JobMatchAnalysis(BaseModel):
     brief_summary: str
 
 # ==========================================
-# 3. HAFIZA (DEDUPLICATION) YÖNETİMİ
+# 4. HAFIZA (DEDUPLICATION) YÖNETİMİ
 # ==========================================
 def load_processed_job_ids() -> set:
     """Daha önce incelenmiş ilan ID'lerini dosyadan okur."""
@@ -68,7 +109,7 @@ def save_processed_job_ids(processed_ids: set):
         json.dump({"processed_ids": list(processed_ids)}, f, indent=2)
 
 # ==========================================
-# 4. CV OKUMA VE SCRAPER FONKSİYONLARI
+# 5. CV OKUMA VE SCRAPER FONKSİYONLARI
 # ==========================================
 def extract_text_from_pdf(pdf_path: str = "cv.pdf") -> str:
     """PDF formatındaki CV'den metin ayıklar."""
@@ -88,7 +129,7 @@ def fetch_linkedin_jobs_by_url(url: str) -> List[JobListing]:
     }
     job_list = []
     try:
-        response = requests.get(url, headers=headers, timeout=10)
+        response = requests.get(url, headers=headers, timeout=8)
         if response.status_code != 200:
             return []
         
@@ -122,7 +163,7 @@ def fetch_job_details(job_id: str) -> str:
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
     try:
-        response = requests.get(detail_url, headers=headers, timeout=10)
+        response = requests.get(detail_url, headers=headers, timeout=8)
         if response.status_code != 200:
             return "Detay metni çekilemedi."
         soup = BeautifulSoup(response.text, "html.parser")
@@ -132,18 +173,8 @@ def fetch_job_details(job_id: str) -> str:
         return f"Hata: {e}"
 
 # ==========================================
-# 5. GEMINI PUANLAMA (YEDEKLİ MODEL YAPISI)
+# 6. GEMINI PUANLAMA (YEDEKLİ MODEL YAPISI)
 # ==========================================
-class JobMatchAnalysis(BaseModel):
-    match_score: int
-    is_disqualified: bool
-    disqualification_reason: str
-    suitability_category: str
-    extracted_requirements: List[str]
-    matching_points: List[str]
-    missing_or_risk_points: List[str]
-    brief_summary: str
-
 def evaluate_job_with_gemini(job_title: str, company: str, raw_description: str, cv_text: str) -> JobMatchAnalysis:
     prompt = f"""
     Sen uzman bir İK ve Teknik Kariyer Danışmanısın.
@@ -167,7 +198,7 @@ def evaluate_job_with_gemini(job_title: str, company: str, raw_description: str,
       "extracted_requirements": ["SQL", "Power BI", "Süreç Analizi"],
       "matching_points": ["Endüstri Mühendisliği mezuniyeti", "SQL yetkinliği"],
       "missing_or_risk_points": ["İlgili sektörde staj tecrübesi tercihi"],
-      "brief_summary": "Junior veri analisti rolü olup adayın profiliyle yüksek uyum göstermektedir."
+      "brief_summary": "Junior analist rolü olup adayın profiliyle yüksek uyum göstermektedir."
     }}
 
     ADAYIN CV METNİ:
@@ -205,10 +236,8 @@ def evaluate_job_with_gemini(job_title: str, company: str, raw_description: str,
     raise last_exception
 
 # ==========================================
-# 6. HEDEF KOTALI VE SAYFALAMALI TARAMA
+# 7. HEDEF KOTALI VE SAYFALAMALI TARAMA
 # ==========================================
-
-# Başlıkta geçerse Gemini'ye HİÇ sormadan anında ele
 INSTANT_DISQUALIFY_KEYWORDS = [
     "senior", "sr.", "sr ", "lead", "principal", "director", "head of", 
     "müdür", "yönetici", "takım lideri", "chief"
@@ -219,7 +248,7 @@ def fetch_and_evaluate_target_jobs(keyword: str, target_new_count: int, cv_text:
     high_match_jobs = []
     analyzed_new_count = 0
     start_offset = 0
-    max_pages = 4  # Sayfa başı 25 kart
+    max_pages = 4
 
     print(f"\n🔍 '{keyword}' için {target_new_count} adet YENİ ilan aranıyor...")
 
@@ -254,7 +283,9 @@ def fetch_and_evaluate_target_jobs(keyword: str, target_new_count: int, cv_text:
                 analysis = evaluate_job_with_gemini(job.title, job.company, desc, cv_text)
                 processed_ids.add(job.job_id)
 
-                if analysis.match_score >= SCORE_THRESHOLD:
+                if analysis.is_disqualified:
+                    print(f"    ❌ [AI Tarafından Elendi]: {analysis.disqualification_reason}")
+                elif analysis.match_score >= SCORE_THRESHOLD:
                     print(f"    ⭐ Eşik Geçildi: {analysis.match_score}/100")
                     high_match_jobs.append({"job": job, "analysis": analysis})
                 else:
@@ -262,7 +293,6 @@ def fetch_and_evaluate_target_jobs(keyword: str, target_new_count: int, cv_text:
             except Exception as e:
                 print(f"    [-] Analiz hatası: {e}")
 
-            # Gemini Free Tier (15 RPM) kota aşımını önlemek için güvenli bekleme
             time.sleep(2)
 
         start_offset += 25
@@ -270,8 +300,9 @@ def fetch_and_evaluate_target_jobs(keyword: str, target_new_count: int, cv_text:
 
     save_processed_job_ids(processed_ids)
     return high_match_jobs
+
 # ==========================================
-# 7. RAPORLAMA VE MAİL GÖNDERİMİ
+# 8. RAPORLAMA VE MAİL GÖNDERİMİ
 # ==========================================
 def generate_email_html(matched_jobs: list) -> str:
     cards = ""
@@ -313,7 +344,7 @@ def send_email(subject: str, html_body: str):
     print("📧 E-posta başarıyla gönderildi!")
 
 # ==========================================
-# 8. ANA ÇALIŞTIRMA FONKSİYONU
+# 9. ANA ÇALIŞTIRMA FONKSİYONU
 # ==========================================
 def main():
     print("📄 CV okunuyor...")
@@ -324,7 +355,6 @@ def main():
     total_target = sum(TARGET_KEYWORDS_QUOTA.values())
     print(f"\n🚀 Toplam {len(TARGET_KEYWORDS_QUOTA)} kategori için {total_target} adet hedef ilan taraması başlatılıyor...\n")
 
-    # Sözlükteki her kelime ve kendine özel kotası için döngü
     for keyword, quota in TARGET_KEYWORDS_QUOTA.items():
         matched = fetch_and_evaluate_target_jobs(
             keyword=keyword, 
@@ -334,58 +364,12 @@ def main():
         all_matched.extend(matched)
 
     if all_matched:
-        # En yüksek puana göre sırala
         all_matched.sort(key=lambda x: x["analysis"].match_score, reverse=True)
-        
-        # Mail kutusunun şişmemesi ve kırpılmaması için en iyi 10-15 ilanı seç
         top_jobs = all_matched[:15]
-        
         html = generate_email_html(top_jobs)
         send_email(f"🚀 Günün Eşleşen En İyi {len(top_jobs)} İlanı", html)
     else:
         print("\n[-] Eşik puanı geçen yeni ilan bulunamadı.")
-
-
-# ==========================================
-# 9. İLAN ANAHTAR KELİMELERİ X İLAN SAYISI
-# ==========================================
-
-TARGET_KEYWORDS_QUOTA = {
-    # Veri & İş Zekası / Analitik
-    "Data Analyst": 5,
-    "Veri Analisti": 5,
-    "Business Intelligence": 3,
-#    "İş Zekası": 3,
- #   "Business Analyst": 5,
-  #  "İş Analisti": 5,
-   # "Junior Data Analyst": 5,
-    #"SQL": 5,
-    #"Data Modeling": 2,
-    #"Veri Modelleme": 2,
-    #"Data Warehouse": 2,
-    #"Veri Ambarı": 2,
-    #"Endüstri Mühendisi": 5,
-    
-    # ERP, SAP & Yazılım
-    #"ERP Danışmanı": 3,
-    #"SAP Consultant": 3,
-    #"ABAP": 5,
-    
-    # Tedarik Zinciri, Üretim & Pazarlama
-    #"Supply Chain": 5,
-    #"Tedarik Zinciri": 5,
-    #"Üretim": 5,
-    #"Production": 3,
-    #"Marketing": 5,
-    #"Pazarlama": 5,
-    
-    # Genç Yetenek & Yönetici Adaylığı
-   # "Yeni Mezun": 3,
-    #"Graduate": 3,
-    #"Management Trainee": 2,
-    #"Yönetici Adayı": 2
-}
-
 
 # ==========================================
 # 10. GİRİŞ NOKTASI (ENTRYPOINT)
