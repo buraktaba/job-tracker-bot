@@ -345,9 +345,6 @@ def main():
     else:
         print("\n[-] Eşik puanı geçen yeni ilan bulunamadı.")
 
-if __name__ == "__main__":
-
-    main()
 
 # ==========================================
 # 9. İLAN ANAHTAR KELİMELERİ X İLAN SAYISI
@@ -388,3 +385,10 @@ TARGET_KEYWORDS_QUOTA = {
     "Management Trainee": 2,
     "Yönetici Adayı": 2
 }
+
+
+# ==========================================
+# 10. GİRİŞ NOKTASI (ENTRYPOINT)
+# ==========================================
+if __name__ == "__main__":
+    main()
