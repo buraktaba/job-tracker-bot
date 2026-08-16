@@ -27,13 +27,14 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Otomasyon Botunu Çalıştır
+       - name: Otomasyon Botunu Çalıştır
         env:
+          PYTHONUNBUFFERED: "1"
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
-          RECEIVER_EMAIL: ${{ secrets.RECEIVER_EMAIL }}
-          SCORE_THRESHOLD: "65"
+          RECEIVER_EMAIL: ${{ secrets.SENDER_EMAIL }}
+          SCORE_THRESHOLD: 65
         run: python -u main.py
 
       - name: Hafızayı Repoya Kaydet
