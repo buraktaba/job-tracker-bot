@@ -345,6 +345,10 @@ def main():
     else:
         print("\n[-] Eşik puanı geçen yeni ilan bulunamadı.")
 
+if __name__ == "__main__":
+
+    main()
+
 # ==========================================
 # 9. İLAN ANAHTAR KELİMELERİ X İLAN SAYISI
 # ==========================================
