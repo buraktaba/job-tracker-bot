@@ -53,6 +53,7 @@ TARGET_KEYWORDS_QUOTA = {
     "ERP Danışmanı": 3,
     "SAP Consultant": 3,
     "ABAP": 5,
+    "S/4HANA": 3,
     
     # Tedarik Zinciri, Üretim & Pazarlama
     "Supply Chain": 5,
@@ -63,10 +64,10 @@ TARGET_KEYWORDS_QUOTA = {
     "Pazarlama": 5,
     
     # Genç Yetenek & Yönetici Adaylığı
-    "Yeni Mezun": 3,
-    "Graduate": 3,
+    "Yeni Mezun": 2,
+    "Graduate": 2,
     "Management Trainee": 2,
-    "Yönetici Adayı": 2
+    "Yönetici Adayı": 1
 }
 
 # ==========================================
