@@ -355,35 +355,35 @@ TARGET_KEYWORDS_QUOTA = {
     "Data Analyst": 5,
     "Veri Analisti": 5,
     "Business Intelligence": 3,
-    "İş Zekası": 3,
-    "Business Analyst": 5,
-    "İş Analisti": 5,
-    "Junior Data Analyst": 5,
-    "SQL": 5,
-    "Data Modeling": 2,
-    "Veri Modelleme": 2,
-    "Data Warehouse": 2,
-    "Veri Ambarı": 2,
-    "Endüstri Mühendisi": 5,
+#    "İş Zekası": 3,
+ #   "Business Analyst": 5,
+  #  "İş Analisti": 5,
+   # "Junior Data Analyst": 5,
+    #"SQL": 5,
+    #"Data Modeling": 2,
+    #"Veri Modelleme": 2,
+    #"Data Warehouse": 2,
+    #"Veri Ambarı": 2,
+    #"Endüstri Mühendisi": 5,
     
     # ERP, SAP & Yazılım
-    "ERP Danışmanı": 3,
-    "SAP Consultant": 3,
-    "ABAP": 5,
+    #"ERP Danışmanı": 3,
+    #"SAP Consultant": 3,
+    #"ABAP": 5,
     
     # Tedarik Zinciri, Üretim & Pazarlama
-    "Supply Chain": 5,
-    "Tedarik Zinciri": 5,
-    "Üretim": 5,
-    "Production": 3,
-    "Marketing": 5,
-    "Pazarlama": 5,
+    #"Supply Chain": 5,
+    #"Tedarik Zinciri": 5,
+    #"Üretim": 5,
+    #"Production": 3,
+    #"Marketing": 5,
+    #"Pazarlama": 5,
     
     # Genç Yetenek & Yönetici Adaylığı
-    "Yeni Mezun": 3,
-    "Graduate": 3,
-    "Management Trainee": 2,
-    "Yönetici Adayı": 2
+   # "Yeni Mezun": 3,
+    #"Graduate": 3,
+    #"Management Trainee": 2,
+    #"Yönetici Adayı": 2
 }
 
 
