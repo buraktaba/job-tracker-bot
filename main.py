@@ -180,6 +180,10 @@ def evaluate_job_with_gemini(job_title: str, company: str, raw_description: str,
     Sen uzman bir İK ve Teknik Kariyer Danışmanısın.
     
     Aşağıdaki ilanı adayın CV'sine göre incele.
+
+    📌 ADAYIN PROFİLİ VE TECRÜBE DEĞERLENDİRMESİ:
+    - Adayın güçlü ve uzun dönemli staj tecrübeleri bulunmaktadır.
+    - İlanlarda 1-2 yıl veya "en az 2-3 yıl" gibi giriş/orta seviye tecrübe beklentileri varsa, adayın bu şartı staj ve proje tecrübeleriyle karşılayabileceğini varsay ve KESİNLİKLE ELEME.
     
     🚨 KESİN ELEME KRİTERLERİ (Disqualification Rules):
     Aşağıdaki durumlardan BİRİ BİLE varsa, "is_disqualified": true, "match_score": 0 yap ve nedenini "disqualification_reason" alanına yaz:
