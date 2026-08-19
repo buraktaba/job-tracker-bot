@@ -245,7 +245,7 @@ def evaluate_job_with_gemini(job_title: str, company: str, raw_description: str,
 # ==========================================
 INSTANT_DISQUALIFY_KEYWORDS = [
     "senior", "sr.", "sr ", "lead", "principal", "director", "head of", 
-    "müdür", "yönetici", "takım lideri", "chief"
+    "müdür", "yönetici", "takım lideri", "chief", "executive"
 ]
 
 def fetch_and_evaluate_target_jobs(keyword: str, target_new_count: int, cv_text: str):
