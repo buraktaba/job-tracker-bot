@@ -124,7 +124,6 @@ def extract_text_from_pdf(pdf_path: str = "cv.pdf") -> str:
     return text.strip()
 
 def fetch_linkedin_jobs_by_url(url: str) -> List[JobListing]:
-    """Belirtilen LinkedIn arama URL'sindeki ilan kartlarını çeker."""
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7"
@@ -133,6 +132,7 @@ def fetch_linkedin_jobs_by_url(url: str) -> List[JobListing]:
     try:
         response = requests.get(url, headers=headers, timeout=8)
         if response.status_code != 200:
+            print(f"   ⚠️ LinkedIn HTTP Yanıtı Başarısız: {response.status_code}")
             return []
         
         soup = BeautifulSoup(response.text, "html.parser")
@@ -157,7 +157,7 @@ def fetch_linkedin_jobs_by_url(url: str) -> List[JobListing]:
     except Exception as e:
         print(f"   [-] Scrape hatası: {e}")
         return []
-
+        
 def fetch_job_details(job_id: str) -> str:
     """İlanın detay açıklamasını çeker."""
     detail_url = f"https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/{job_id}"
@@ -263,25 +263,30 @@ def fetch_and_evaluate_target_jobs(keyword: str, target_new_count: int, cv_text:
         url = f"https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?keywords={encoded_keyword}&location=Turkey&start={start_offset}"
         jobs_on_page = fetch_linkedin_jobs_by_url(url)
         
+        # Sayfa kontrolü
         if not jobs_on_page:
+            print(f"   ⚠️ Sayfa boş döndü veya çekilemedi (offset: {start_offset}). Sonraki anahtar kelimeye geçiliyor.")
             break
+
+        print(f"   📄 Sayfa çekildi (offset: {start_offset}) -> Bulunan ilan sayısı: {len(jobs_on_page)}")
 
         for job in jobs_on_page:
             if analyzed_new_count >= target_new_count:
                 break
 
-            # 1. Kontrol: Daha önce bakıldı mı?
+            # 1. Kontrol: Hafızada var mı?
             if job.job_id in processed_ids:
+                print(f"   ⏩ [Daha Önce İncelendi]: {job.title} ({job.company})")
                 continue
 
-            # 2. Kontrol: Senior/Müdür ise Gemini'ye gitmeden hemen ele
+            # 2. Kontrol: Senior/Müdür filtresi
             title_lower = job.title.lower()
             if any(bad_kw in title_lower for bad_kw in INSTANT_DISQUALIFY_KEYWORDS):
                 print(f"   🚫 [Hızlı Elendi - Kıdem]: {job.title} ({job.company})")
                 processed_ids.add(job.job_id)
                 continue
 
-            # 3. Kontrol: Şartları sağlayan yeni ilan için analiz
+            # 3. Kontrol: Analize gönder
             analyzed_new_count += 1
             print(f"   🤖 [{analyzed_new_count}/{target_new_count}] Analiz ediliyor: {job.title} - {job.company}")
             
@@ -304,6 +309,9 @@ def fetch_and_evaluate_target_jobs(keyword: str, target_new_count: int, cv_text:
 
         start_offset += 25
         max_pages -= 1
+
+    if analyzed_new_count == 0:
+        print(f"   ℹ️ '{keyword}' kategorisinde analiz edilecek yeni ilan bulunamadı.")
 
     save_processed_job_ids(processed_ids)
     return high_match_jobs
