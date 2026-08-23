@@ -381,3 +381,5 @@ def main():
 if __name__ == "__main__":
     main()
 
+
+benim kodum bu çalışan iyice incele ve bekle
