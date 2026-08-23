@@ -26,7 +26,7 @@ SCORE_THRESHOLD = int(os.getenv("SCORE_THRESHOLD", "65"))
 DB_FILE = "processed_jobs.json"
 
 if not GEMINI_API_KEY or not SENDER_EMAIL or not EMAIL_PASSWORD:
-    raise ValueError("Gerekli çevre değişkenleri (GEMINI_API_KEY, SENDER_EMAIL, EMAIL_PASSWORD) eksik!")
+    raise ValueError("Gerekli çevre değişkenleri (GEMINI_API_KEY, SENDER_EMAIL, EMAIL_PASSWORD) eksik!")
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 
