@@ -3,6 +3,7 @@ import time
 import json
 import smtplib
 import requests
+from urllib.parse import quote_plus
 from bs4 import BeautifulSoup
 from typing import List
 from pydantic import BaseModel
@@ -258,7 +259,8 @@ def fetch_and_evaluate_target_jobs(keyword: str, target_new_count: int, cv_text:
     print(f"\n🔍 '{keyword}' için {target_new_count} adet YENİ ilan aranıyor...")
 
     while analyzed_new_count < target_new_count and max_pages > 0:
-        url = f"https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?keywords={keyword}&location=Turkey&start={start_offset}"
+        encoded_keyword = quote_plus(keyword)
+        url = f"https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?keywords={encoded_keyword}&location=Turkey&start={start_offset}"
         jobs_on_page = fetch_linkedin_jobs_by_url(url)
         
         if not jobs_on_page:
