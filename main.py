@@ -49,6 +49,8 @@ TARGET_KEYWORDS_QUOTA = {
     "Data Warehouse": 2,
     "Veri Ambarı": 2,
     "Endüstri Mühendisi": 5,
+    "Product Owner": 3,
+    "Product Specialist": 3,
     
     # ERP, SAP & Yazılım
     "ERP Danışmanı": 3,
