@@ -31,7 +31,7 @@ if not GEMINI_API_KEY or not SENDER_EMAIL or not EMAIL_PASSWORD:
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 # ==========================================
-# 2. HEDEF KELİMELER VE KOTA DAĞILIMI
+# 2.1 HEDEF KELİMELER VE KOTA DAĞILIMI
 # ==========================================
 TARGET_KEYWORDS_QUOTA = {
     # Veri & İş Zekası / Analitik
@@ -69,6 +69,47 @@ TARGET_KEYWORDS_QUOTA = {
     "Management Trainee": 2,
     "Yönetici Adayı": 1
 }
+
+
+# ==========================================
+# 2.2 HEDEF LOKASYONLAR VE FİLTRE FONKSİYONU
+# ==========================================
+MARMARA = {
+    "istanbul", "kocaeli", "gebze", "bursa", "tekirdag", "corlu", 
+    "balikesir", "canakkale", "sakarya", "edirne", "kirklareli", "yalova", "bilecik"
+}
+
+EGE = {
+    "izmir", "manisa", "aydin", "mugla"
+}
+
+AKDENIZ = {
+    "antalya", "adana", "mersin", "hatay", "kahramanmaras", "osmaniye"
+}
+
+DIGER_HEDEFLER = {
+    "ankara", "eskisehir", "samsun", "gaziantep", "antep", "sanliurfa", "urfa"
+}
+
+ALLOWED_LOCATIONS = MARMARA | EGE | AKDENIZ | DIGER_HEDEFLER
+
+def is_target_location(location_str: str) -> bool:
+    """İlan lokasyonunun hedeflenen bölge/şehirlerde veya esnek modelde olup olmadığını denetler."""
+    if not location_str or location_str == "Belirtilmemiş":
+        return True  # Lokasyon kartta boşsa ilanı kaçırmamak adına analize dahil et
+
+    # Türkçe karakter temizleme ve normalizasyon
+    loc_clean = (
+        location_str.lower()
+        .replace("ı", "i")
+        .replace("ğ", "g")
+        .replace("ü", "u")
+        .replace("ş", "s")
+        .replace("ö", "o")
+        .replace("ç", "c")
+    )
+
+    return any(target in loc_clean for target in ALLOWED_LOCATIONS)
 
 # ==========================================
 # 3. VERİ MODELLERİ
@@ -275,13 +316,19 @@ def fetch_and_evaluate_target_jobs(keyword: str, target_new_count: int, cv_text:
             # 2. Kontrol: Senior/Müdür ise Gemini'ye gitmeden hemen ele
             title_lower = job.title.lower()
             if any(bad_kw in title_lower for bad_kw in INSTANT_DISQUALIFY_KEYWORDS):
-                print(f"  🚫 [Hızlı Elendi - Kıdem]: {job.title} ({job.company})")
+                print(f"   🚫 [Hızlı Elendi - Kıdem]: {job.title} ({job.company})")
                 processed_ids.add(job.job_id)
                 continue
 
-            # 3. Kontrol: Şartları sağlayan yeni ilan için analiz
+            # 3. Kontrol: Lokasyon Kontrolü (BURAYA EKLENİYOR)
+            if not is_target_location(job.location):
+                print(f"   📍 [Hızlı Elendi - Lokasyon Dışı ({job.location})]: {job.title} - {job.company}")
+                processed_ids.add(job.job_id)
+                continue
+
+            # 4. Kontrol: Şartları sağlayan yeni ilan için analiz
             analyzed_new_count += 1
-            print(f"  🤖 [{analyzed_new_count}/{target_new_count}] Analiz ediliyor: {job.title} - {job.company}")
+            print(f"   🤖 [{analyzed_new_count}/{target_new_count}] Analiz ediliyor: {job.title} - {job.company}")
             
             try:
                 desc = fetch_job_details(job.job_id)
