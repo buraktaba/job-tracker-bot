@@ -2,8 +2,8 @@ name: Daily Job Tracker Automation
 
 on:
   schedule:
-    # Her sabah Türkiye saatiyle 05:00'te çalışır (UTC 02:00)
-    - cron: '0 2 * * *'
+    # 02:18 UTC (TSİ 05:18)
+    - cron: '18 2 * * *'
   workflow_dispatch:
 
 permissions:
