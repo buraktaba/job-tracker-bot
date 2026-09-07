@@ -14,6 +14,24 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from dotenv import load_dotenv
 
+
+# ==========================================
+# EXCEL'DEN ALINAN HOLDING ID LİSTESİ
+# ==========================================
+TARGET_HOLDINGS = {
+    "Koç Holding": "2522661,2531491,114503,18642324,26699,343307,10050760,11283582,11716704,74069369,1261255,96085,864921,17907142,32471,13024849,9448713,18306190,164632,84360796,1054093,11802921,1424395,167009,147174,37777700,120487,710125,126121,448366,1246713,80799418,3039621,1155066,77709197,3134208,47411,33193039,9184498,91066706",
+    "Sabancı Holding": "745033,49236,28549,138759,2957562,87737,11450999,328255,3507209,12608717,165804",
+    "OYAK": "79497471,5331799,35975,952073,28648178,10377561,69182164,11272615,1369624,7274019,13039177,38146903,99948966,8880786,501904,2729712,18465219,417304,61536,56352,877679,120101,864807,11392070,1389755,901053,9044280,11411158,51954023,28613195",
+    "Yıldız Holding": "1288816,118786,785480,2987947,364877,1643473,537508,3943059,8007274,79171914,80786116,18136129,10171853,5427429,13056255,68584620,1722016",
+    "Anadolu Grubu": "2590533,10855,1032742,1863509,890566,10394704,400885,1698669,10366729,491679,18090894,11711625,43805",
+    "Doğuş Grubu": "2807976,10791479,27684,4836302,3006163",
+    "Eczacıbaşı Holding": "7776,7778,1461968,3709937,106089535,3013379,607751,2371028,2371030,72760995,863675,10783804,18136589,2474172,3592973",
+    "Kibar Holding": "9176494,9178191,3533936,9178186,8464108,49262,9177347,5398173,5260576,9178205,9178202,9132023,9176497,1577255",
+    "Borusan Holding": "9452608,12114,3162148,10555252,9452613,969659,1159286,1162057,2851922,339967,10151393,600134",
+    "Akkök Holding": "3581042,79364,3474238,3544698,1420603,312500,1296003,919261,5095486,1184646,110550,2959831,4999760",
+    "Sanko Holding": "6436497,1956158,1544130,86342048,3729165,2325530,42443211"
+}
+
 # ==========================================
 # 1. AYARLAR VE BAĞLANTILAR
 # ==========================================
@@ -318,6 +336,67 @@ def fetch_and_evaluate_target_jobs(keyword: str, target_new_count: int, cv_text:
     save_processed_job_ids(processed_ids)
     return high_match_jobs
 
+
+def fetch_and_evaluate_holding_jobs(holding_name: str, company_ids: str, cv_text: str, max_pages: int = 2):
+    processed_ids = load_processed_job_ids()
+    high_match_jobs = []
+    start_offset = 0
+
+    print(f"\n🏢 {holding_name} ilan akışı taranıyor...")
+
+    while max_pages > 0:
+        # keywords yok, doğrudan f_C parametresi kullanılıyor
+        url = f"https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?f_C={company_ids}&location=Turkey&start={start_offset}"
+        jobs_on_page = fetch_linkedin_jobs_by_url(url)
+
+        if not jobs_on_page:
+            break
+
+        new_jobs_count = 0
+
+        for job in jobs_on_page:
+            # 1. Kontrol: Hafızada var mı?
+            if job.job_id in processed_ids:
+                continue
+
+            # 2. Kontrol: Senior/Müdür filtresi
+            title_lower = job.title.lower()
+            if any(bad_kw in title_lower for bad_kw in INSTANT_DISQUALIFY_KEYWORDS):
+                processed_ids.add(job.job_id)
+                continue
+
+            # 3. Kontrol: Gemini Değerlendirmesi
+            new_jobs_count += 1
+            print(f"   🆕 [{holding_name}] Yeni İlan: {job.title} ({job.company})")
+
+            try:
+                desc = fetch_job_details(job.job_id)
+                analysis = evaluate_job_with_gemini(job.title, job.company, desc, cv_text)
+                processed_ids.add(job.job_id)
+
+                if analysis.is_disqualified:
+                    print(f"      ❌ [Elendi]: {analysis.disqualification_reason}")
+                elif analysis.match_score >= SCORE_THRESHOLD:
+                    print(f"      ⭐ Eşik Geçildi: {analysis.match_score}/100")
+                    high_match_jobs.append({"job": job, "analysis": analysis})
+                else:
+                    print(f"      📊 Puan: {analysis.match_score}/100")
+            except Exception as e:
+                print(f"      [-] Analiz hatası: {e}")
+
+            time.sleep(2)
+
+        # Sayfadaki tüm ilanlar zaten hafızadaysa sonraki sayfalara bakmadan dur
+        if new_jobs_count == 0:
+            print(f"   ⏩ {holding_name} için yeni ilan yok, hafızadaki ilanlar atlandı.")
+            break
+
+        start_offset += 25
+        max_pages -= 1
+
+    save_processed_job_ids(processed_ids)
+    return high_match_jobs
+
 # ==========================================
 # 8. RAPORLAMA VE MAİL GÖNDERİMİ
 # ==========================================
@@ -369,8 +448,25 @@ def main():
     print(f"✅ CV başarıyla okundu ({len(cv_text)} karakter).")
 
     all_matched = []
+
+    # ==========================================
+    # 1. ADIM: HOLDING TARAMALARI (Excel Listesi)
+    # ==========================================
+    print("\n🚀 Holding bazlı güncel ilan taraması başlıyor...")
+    for holding_name, company_ids in TARGET_HOLDINGS.items():
+        matched = fetch_and_evaluate_holding_jobs(
+            holding_name=holding_name, 
+            company_ids=company_ids, 
+            cv_text=cv_text, 
+            max_pages=2
+        )
+        all_matched.extend(matched)
+
+    # ==========================================
+    # 2. ADIM: MEVCUT GENEL ARAMALAR (Birebir Aynı Kalıyor)
+    # ==========================================
     total_target = sum(TARGET_KEYWORDS_QUOTA.values())
-    print(f"\n🚀 Toplam {len(TARGET_KEYWORDS_QUOTA)} kategori için {total_target} adet hedef ilan taraması başlatılıyor...\n")
+    print(f"\n🚀 Genel kategori taramaları başlatılıyor ({total_target} hedef)...\n")
 
     for keyword, quota in TARGET_KEYWORDS_QUOTA.items():
         matched = fetch_and_evaluate_target_jobs(
@@ -380,6 +476,9 @@ def main():
         )
         all_matched.extend(matched)
 
+    # ==========================================
+    # 3. ADIM: E-POSTA GÖNDERİMİ
+    # ==========================================
     if all_matched:
         all_matched.sort(key=lambda x: x["analysis"].match_score, reverse=True)
         html = generate_email_html(all_matched)
