@@ -274,64 +274,63 @@ def fetch_and_evaluate_target_jobs(keyword: str, target_new_count: int, cv_text:
     high_match_jobs = []
     analyzed_new_count = 0
     start_offset = 0
-    max_pages = 4
+    max_pages = 8  # Kontrollü derinlik sınırı
+    empty_streak = 0  # Üst üste yeni ilan çıkmayan sayfa sayacı
 
     print(f"\n🔍 '{keyword}' için {target_new_count} adet YENİ ilan aranıyor...")
 
     while analyzed_new_count < target_new_count and max_pages > 0:
         encoded_keyword = quote_plus(keyword)
-        url = f"https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?keywords={encoded_keyword}&location=Turkey&start={start_offset}"
+        # sortBy=DD parametresi ile en yeni ilanlar en baştan çekilir
+        url = (
+            f"https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?"
+            f"keywords={encoded_keyword}&location=Turkey&start={start_offset}&sortBy=DD"
+        )
         jobs_on_page = fetch_linkedin_jobs_by_url(url)
         
-        # Sayfa kontrolü
         if not jobs_on_page:
-            print(f"   ⚠️ Sayfa boş döndü veya çekilemedi (offset: {start_offset}). Sonraki anahtar kelimeye geçiliyor.")
             break
 
-        print(f"   📄 Sayfa çekildi (offset: {start_offset}) -> Bulunan ilan sayısı: {len(jobs_on_page)}")
+        new_on_this_page = 0
 
         for job in jobs_on_page:
             if analyzed_new_count >= target_new_count:
                 break
 
-            # 1. Kontrol: Hafızada var mı?
             if job.job_id in processed_ids:
-                print(f"   ⏩ [Daha Önce İncelendi]: {job.title} ({job.company})")
                 continue
 
-            # 2. Kontrol: Senior/Müdür filtresi
             title_lower = job.title.lower()
             if any(bad_kw in title_lower for bad_kw in INSTANT_DISQUALIFY_KEYWORDS):
-                print(f"   🚫 [Hızlı Elendi - Kıdem]: {job.title} ({job.company})")
                 processed_ids.add(job.job_id)
                 continue
 
-            # 3. Kontrol: Analize gönder
+            new_on_this_page += 1
             analyzed_new_count += 1
-            print(f"   🤖 [{analyzed_new_count}/{target_new_count}] Analiz ediliyor: {job.title} - {job.company}")
             
             try:
                 desc = fetch_job_details(job.job_id)
                 analysis = evaluate_job_with_gemini(job.title, job.company, desc, cv_text)
                 processed_ids.add(job.job_id)
 
-                if analysis.is_disqualified:
-                    print(f"      ❌ [AI Tarafından Elendi]: {analysis.disqualification_reason}")
-                elif analysis.match_score >= SCORE_THRESHOLD:
-                    print(f"      ⭐ Eşik Geçildi: {analysis.match_score}/100")
+                if analysis.match_score >= SCORE_THRESHOLD and not analysis.is_disqualified:
                     high_match_jobs.append({"job": job, "analysis": analysis})
-                else:
-                    print(f"      📊 Puan: {analysis.match_score}/100")
             except Exception as e:
                 print(f"      [-] Analiz hatası: {e}")
 
-            time.sleep(2)
+            time.sleep(1.5)
+
+        # Devre kesici (Circuit Breaker): Üst üste 2 sayfada da hiç yeni ilan yoksa aramayı kes
+        if new_on_this_page == 0:
+            empty_streak += 1
+            if empty_streak >= 2:
+                print(f"    ⏩ '{keyword}' için son sayfalarda yeni ilan kalmadı, döngü sonlandırıldı.")
+                break
+        else:
+            empty_streak = 0
 
         start_offset += 25
         max_pages -= 1
-
-    if analyzed_new_count == 0:
-        print(f"   ℹ️ '{keyword}' kategorisinde analiz edilecek yeni ilan bulunamadı.")
 
     save_processed_job_ids(processed_ids)
     return high_match_jobs
