@@ -265,7 +265,7 @@ def evaluate_job_with_gemini(job_title: str, company: str, raw_description: str,
 # 7. HEDEF KOTALI VE SAYFALAMALI TARAMA
 # ==========================================
 INSTANT_DISQUALIFY_KEYWORDS = [
-    "senior", "sr.", "sr ", "lead", "principal", "director", "head of", 
+    "senior", "sr.", "sr ", "lead", "principal", "director", "head of", "operatör", "teknisyen",
     "müdür", "yönetici", "takım lideri", "chief", "executive", "intern", "internship" , "staj" , "stajyer"
 ]
 
