@@ -143,40 +143,56 @@ def extract_text_from_pdf(pdf_path: str = "cv.pdf") -> str:
         text += page.extract_text() or ""
     return text.strip()
 
-def fetch_linkedin_jobs_by_url(url: str) -> List[JobListing]:
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7"
-    }
-    job_list = []
-    try:
-        response = requests.get(url, headers=headers, timeout=8)
-        if response.status_code != 200:
-            print(f"   ⚠️ LinkedIn HTTP Yanıtı Başarısız: {response.status_code}")
-            return []
-        
-        soup = BeautifulSoup(response.text, "html.parser")
-        job_cards = soup.find_all("li")
+# ==========================================
+# CV OKUMA VE SCRAPER FONKSİYONLARI 
+# ==========================================
+HTTP_SESSION = requests.Session()
+HTTP_SESSION.headers.update({
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7"
+})
 
-        for card in job_cards:
-            title_tag = card.find("h3", class_="base-search-card__title")
-            company_tag = card.find("h4", class_="base-search-card__subtitle")
-            location_tag = card.find("span", class_="job-search-card__location")
-            link_tag = card.find("a", class_="base-card__full-link")
+def fetch_linkedin_jobs_by_url(url: str, max_retries: int = 2) -> List[JobListing]:
+    for attempt in range(1, max_retries + 1):
+        try:
+            response = HTTP_SESSION.get(url, timeout=6)
+            
+            if response.status_code == 429:
+                wait_time = 20 * attempt
+                print(f"   ⚠️ LinkedIn 429 (Rate Limit). {wait_time} saniye bekleniyor (Deneme {attempt}/{max_retries})...")
+                time.sleep(wait_time)
+                continue
+                
+            if response.status_code != 200:
+                print(f"   ⚠️ LinkedIn HTTP Yanıtı Başarısız: {response.status_code}")
+                return []
+            
+            soup = BeautifulSoup(response.text, "html.parser")
+            job_cards = soup.find_all("li")
+            job_list = []
 
-            if title_tag and company_tag and link_tag:
-                link = link_tag.get("href", "").split("?")[0]
-                job_list.append(JobListing(
-                    title=title_tag.get_text(strip=True),
-                    company=company_tag.get_text(strip=True),
-                    location=location_tag.get_text(strip=True) if location_tag else "Belirtilmemiş",
-                    job_link=link,
-                    job_id=link.rstrip("/").split("-")[-1]
-                ))
-        return job_list
-    except Exception as e:
-        print(f"   [-] Scrape hatası: {e}")
-        return []
+            for card in job_cards:
+                title_tag = card.find("h3", class_="base-search-card__title")
+                company_tag = card.find("h4", class_="base-search-card__subtitle")
+                location_tag = card.find("span", class_="job-search-card__location")
+                link_tag = card.find("a", class_="base-card__full-link")
+
+                if title_tag and company_tag and link_tag:
+                    link = link_tag.get("href", "").split("?")[0]
+                    job_list.append(JobListing(
+                        title=title_tag.get_text(strip=True),
+                        company=company_tag.get_text(strip=True),
+                        location=location_tag.get_text(strip=True) if location_tag else "Belirtilmemiş",
+                        job_link=link,
+                        job_id=link.rstrip("/").split("-")[-1]
+                    ))
+            return job_list
+            
+        except Exception as e:
+            print(f"   [-] Scrape hatası: {e}")
+            time.sleep(2)
+
+    return []
         
 def fetch_job_details(job_id: str) -> str:
     """İlanın detay açıklamasını çeker."""
@@ -460,9 +476,11 @@ def main():
             max_pages=2
         )
         all_matched.extend(matched)
+        # Holdingler arası WAF soğuma payı
+        time.sleep(2)
 
     # ==========================================
-    # 2. ADIM: MEVCUT GENEL ARAMALAR (Birebir Aynı Kalıyor)
+    # 2. ADIM: GENEL KATEGORİ TARAMALARI (Throttling Korumalı)
     # ==========================================
     total_target = sum(TARGET_KEYWORDS_QUOTA.values())
     print(f"\n🚀 Genel kategori taramaları başlatılıyor ({total_target} hedef)...\n")
@@ -474,6 +492,9 @@ def main():
             cv_text=cv_text
         )
         all_matched.extend(matched)
+
+        # LinkedIn IP blokajını (HTTP 429) engellemek için 
+        time.sleep(3)
 
     # ==========================================
     # 3. ADIM: E-POSTA GÖNDERİMİ
