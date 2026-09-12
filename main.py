@@ -336,14 +336,14 @@ def fetch_and_evaluate_target_jobs(keyword: str, target_new_count: int, cv_text:
 
             time.sleep(1.5)
 
-        # Devre kesici (Circuit Breaker): Üst üste 2 sayfada da hiç yeni ilan yoksa aramayı kes
-        if new_on_this_page == 0:
-            empty_streak += 1
-            if empty_streak >= 2:
-                print(f"    ⏩ '{keyword}' için son sayfalarda yeni ilan kalmadı, döngü sonlandırıldı.")
-                break
-        else:
-            empty_streak = 0
+       #  Devre kesici (Circuit Breaker): Üst üste 2 sayfada da hiç yeni ilan yoksa aramayı kes
+       # if new_on_this_page == 0:
+       #     empty_streak += 1
+       #     if empty_streak >= 2:
+       #         print(f"    ⏩ '{keyword}' için son sayfalarda yeni ilan kalmadı, döngü sonlandırıldı.")
+       #         break
+       # else:
+       #     empty_streak = 0
 
         start_offset += 25
         max_pages -= 1
